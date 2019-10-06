@@ -1,5 +1,0 @@
-#!/bin/bash
-JMAKE_VERSION=0.0.1
-JMAKE_MAKE_FILE=/Users/joshua.spisak/Coding/personal/jmake/test/JMakeLists.txt
-JMAKE_SOURCE_DIRECTORY=/Users/joshua.spisak/Coding/personal/jmake/test
-JMAKE_BUILD_DIRECTORY=/Users/joshua.spisak/Coding/personal/jmake/test/build
