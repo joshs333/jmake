@@ -1,0 +1,719 @@
+#!/bin/bash
+# It probably won't matter.. but just in case.
+VERSION=0.0.1
+
+COLOR_NC=$'\e[0m' # No Color
+COLOR_WHITE=$'\e[1;37m'
+COLOR_BLACK=$'\e[0;30m'
+COLOR_BLUE=$'\e[0;34m'
+COLOR_LIGHT_BLUE=$'\e[1;34m'
+COLOR_GREEN=$'\e[0;32m'
+COLOR_LIGHT_GREEN=$'\e[1;32m'
+COLOR_CYAN=$'\e[0;36m'
+COLOR_LIGHT_CYAN=$'\e[1;36m'
+COLOR_RED=$'\e[0;31m'
+COLOR_LIGHT_RED=$'\e[1;31m'
+COLOR_PURPLE=$'\e[0;35m'
+COLOR_LIGHT_PURPLE=$'\e[1;35m'
+COLOR_BROWN=$'\e[0;33m'
+COLOR_YELLOW=$'\e[1;33m'
+COLOR_GRAY=$'\e[0;30m'
+COLOR_LIGHT_GRAY=$'\e[0;37m'
+
+COLOR_ERROR=${COLOR_RED}
+COLOR_WARN=${COLOR_YELLOW}
+COLOR_INFO=${COLOR_BLUE}
+COLOR_START=${COLOR_LIGHT_BLUE}
+COLOR_FINISH=${COLOR_LIGHT_GREEN}
+COLOR_COMPLETE=${COLOR_GREEN}
+
+
+JMAKE_BUILD_FILES_DIR=JBUILD
+JMAKE_PKG_DIR_PREFIX=${JMAKE_BUILD_FILES_DIR}/JPKG_
+JMAKE_JAR_PREF=${JMAKE_BUILD_FILES_DIR}/JJAR_
+
+################################################################################
+# Some file creation stuff
+################################################################################
+##
+# @brief this code reads source files and adds their definitions to a file
+# @param OUT_FILE ($1) file to write definitions to
+# @param PKGS ($2) the pkgs to parse split by |
+# @param FILES ($3) the files in the above package (split by " ") pkg split by |
+##
+function make_file_info() {
+    if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
+        echo "ERROR: arguments must be provided to parse_classes <pkgs> \"<files>\" <out_file>"
+        exit 1
+    fi
+    OUT_FILE=$1
+    PKG=$2
+    FILES=$3
+
+    echo "#!/bin/bash" > $OUT_FILE
+    echo "JMAKE_VERSION=${VERSION}" >> $OUT_FILE
+    echo "JMAKE_BUILD_DIRECTORY=${JMAKE_BUILD_DIRECTORY}" >> $OUT_FILE
+    echo "JMAKE_PKG_DIR_PREFIX=${JMAKE_PKG_DIR_PREFIX}" >> $OUT_FILE
+    # The following is a python script that scans for classes within a set of
+    # files using regex
+read -r -d '' PYTHON_CLASS_PARSER << EOM
+import re
+
+pkgs = "$PKG".split("|")
+file_lists = "$FILES".split("|")
+output_file = "$OUT_FILE"
+
+if len(file_lists) != len(pkgs):
+    print("ERROR: file lists and pkg lists are of different lenghts.")
+    quit(1)
+
+if len(pkgs) == 0 or len(file_lists) == 0:
+    print("ERROR: no files provided to make $OUT_FILE")
+    quit(1)
+
+final_pkg_list = []
+final_class_list = []
+final_class_full_list = []
+
+for i in range(len(pkgs)):
+    pkg = pkgs[i]
+    files = file_lists[i].split(" ")
+    for file in files:
+        try:
+            with open(file, 'r') as f:
+                data = f.read()
+            if "package" in data:
+                pkg_split = re.split('package ', data)
+                package = re.search('(\w*)', pkg_split[1]).group(1)
+            else:
+                package = None
+            class_list = [re.search('(\w*)', i).group(1) for i in re.split('class ', data) if re.search('\n\s*public static void main', i)]
+            for class_name in class_list:
+                final_pkg_list.append(pkg)
+                final_class_list.append(class_name)
+                final_class_full_list.append(class_name if package == None else "%s.%s"%(package, class_name))
+        except Exception as err:
+            print("Error: " + str(err))
+with open(output_file, "a+") as out:
+    out.write("JMAKE_CLASS_NAME=(\n")
+    for class_name in final_class_list:
+        out.write("    %s\n"%(class_name))
+    out.write(")\n")
+    out.write("JMAKE_CLASS_FULL_NAME=(\n")
+    for full_class in final_class_full_list:
+        out.write("    %s\n"%(full_class))
+    out.write(")\n")
+    out.write("JMAKE_CLASS_PKG=(\n")
+    for pkg in final_pkg_list:
+        out.write("    %s\n"%(pkg))
+    out.write(")\n")
+exit(0)
+EOM
+python -c "$PYTHON_CLASS_PARSER"
+if [ ! $? -eq 0 ]; then
+    echo "ERROR: Creation of ${OUT_FILE} failed!"
+    exit 1
+fi
+
+}
+
+##
+# @brief makes a file info bash file
+# @param $1 location to set as the source directory
+# @param $JMAKE_BUILD_INFO_PATH set as soon as script starts, bash file to file to
+# @details writes the details of the bash file
+##
+function create_file_info() {
+    JMAKE_SOURCE_DIRECTORY=$JMAKE_RUN_DIRECTORY
+    if [ ! -z "$1" ]; then
+        cd $1
+        JMAKE_SOURCE_DIRECTORY=$(pwd)
+    fi
+    JMAKE_MAKE_FILE=$JMAKE_SOURCE_DIRECTORY/JMakeLists.txt
+    if [ ! -f $JMAKE_MAKE_FILE ]; then
+        echo "${COLOR_ERROR}ERROR: No Make File Exists.${COLOR_NC}"
+        exit 1
+    fi
+    echo "${COLOR_START}Creating JMAKE_BUILD_INFO.bash${COLOR_NC}"
+    echo "#!/bin/bash" > ${JMAKE_BUILD_INFO_PATH}
+    echo "JMAKE_VERSION=${VERSION}" >> ${JMAKE_BUILD_INFO_PATH}
+    echo "JMAKE_MAKE_FILE=${JMAKE_MAKE_FILE}" >> ${JMAKE_BUILD_INFO_PATH}
+    echo "JMAKE_SOURCE_DIRECTORY=${JMAKE_SOURCE_DIRECTORY}" >> ${JMAKE_BUILD_INFO_PATH}
+    echo "JMAKE_BUILD_DIRECTORY=${JMAKE_RUN_DIRECTORY}" >> ${JMAKE_BUILD_INFO_PATH}
+}
+
+# TODO(joshua.spisak): make this work? Lol
+# This is supposed to make a python file that marks the executable file +x
+# without needing a sudo... I tried a few different things but nothing worked.
+function executable_marker {
+    PYTHON_SCRIPT=$1
+    echo "import os" > $PYTHON_SCRIPT
+    echo "import stat" >> $PYTHON_SCRIPT
+    echo "import sys" >> $PYTHON_SCRIPT
+    echo "st = os.stat(sys.argv[0])" >> $PYTHON_SCRIPT
+    echo "os.chmod(sys.argv[0], st.st_mode | 0o111)" >> $PYTHON_SCRIPT
+}
+
+##
+# @brief creates a manifest that marks a jar file as executable
+# @param MANIFEST_FILE ($1) the path to the manifest file
+# @param MAIN_CLASS ($2) the class to make the jar execute
+# @details writes the manifest file then stops
+##
+function create_manifest {
+    MANIFEST_FILE=$1
+    MAIN_CLASS=$2
+    MANIFEST_DIR=$(dirname $MANIFEST_FILE)
+    if [ ! -e $MANIFEST_DIR ]; then
+        mkdir -p $MANIFEST_DIR
+    fi
+    echo "Manifest-Version: 1.0" > $MANIFEST_FILE
+    echo "Created-By: JMake ${VERSION}" >> $MANIFEST_FILE
+    echo "Main-Class: ${MAIN_CLASS}" >> $MANIFEST_FILE
+}
+
+##
+# @brief creates a stub that will be combined with an executable jar to make
+#  a linux executable file
+# @param STUB_FILE ($1) where to write the stub
+# @param JAVA_CLASS ($2) optionally tells java what class to execute (optional)
+# @details the beautiful thing is this stub is generic to any jar.. so we only
+#  ned to make it once.
+##
+function create_exec_stub {
+    STUB_FILE=$1
+    echo "#!/bin/sh" > $STUB_FILE
+    echo "MYSELF=\`which \"\$0\" 2>/dev/null\`" >> $STUB_FILE
+    echo "[ \$? -gt 0 -a -f \"\$0\" ] && MYSELF=\"./\$0\"" >> $STUB_FILE
+    echo "java=java" >> $STUB_FILE
+    echo "if test -n \"\$JAVA_HOME\"; then" >> $STUB_FILE
+    echo "    java=\"\$JAVA_HOME/bin/java\"" >> $STUB_FILE
+    echo "fi" >> $STUB_FILE
+    # TODO(joshua.spisak): determine if $java_args can be removed from below
+    echo "exec \"\$java\" \$java_args -jar \$MYSELF \"\$@\"" >> $STUB_FILE
+    echo "exit 1" >> $STUB_FILE
+}
+
+##
+# @brief creates a setup bash file at a given location
+# @param SETUP_BASH_FILE ($1) path to the setup.bash
+# @param JMAKE_SOURCE_DIRECTORY root directory of the project
+# @param JMAKE_BUILD_DIRECTORY where to build and where build data is located
+##
+function create_setup_bash {
+    SETUP_BASH_FILE=$1
+cat > $SETUP_BASH_FILE << SETUP_BASH_END
+#!/bin/bash
+WORKSPACE_DIRECTORY=${JMAKE_SOURCE_DIRECTORY}
+WORKSPACE_BUILD_DIRECTORY=${JMAKE_BUILD_DIRECTORY}
+WORKSPACE_FILE_INFO_FILE=\${WORKSPACE_BUILD_DIRECTORY}/JMAKE_FILE_INFO.txt
+WORKSPACE_BUILD_INFO_FILE=\${WORKSPACE_BUILD_DIRECTORY}/JMAKE_BUILD_INFO.txt
+if [ ! \$PATH == *"${JMAKE_BUILD_DIRECTORY}"* ]; then
+    PATH="\$PATH:${JMAKE_BUILD_DIRECTORY}"
+fi
+
+##
+# @brief goes to the build directory, makes code then returns
+##
+function build() {
+    start_dir=\$(pwd)
+    if [ ! -e \$WORKSPACE_BUILD_DIRECTORY ] || [ ! -f \$WORKSPACE_BUILD_INFO_FILE ]; then
+        mkdir -p \${WORKSPACE_BUILD_DIRECTORY}
+        cd \${WORKSPACE_BUILD_DIRECTORY}
+        jmake \$WORKSPACE_DIRECTORY
+    fi
+    cd \${WORKSPACE_BUILD_DIRECTORY}
+    jmake
+    cd \$start_dir
+}
+
+##
+# @brief finds a class that was built based on name/package then executes it
+# @param CLASS_TO_RUN (\$1) format: [<jmake package>/](<java class>|<java package>.<java class>) class to execute
+# @param ARGUMENTS_TO_EXEC (\$2 - \$#) arguments that will be passed to the java runtime
+# @returns 1 if build not made, 2 if no arguments give, 3 if class not found, 4 if class collision and no package specified
+#  5 if collision experienced with a package provided. Otherwise returns the programs return code.
+##
+function run() {
+    # Check arguments/environment
+    if [ ! -f \$WORKSPACE_FILE_INFO_FILE ]; then
+        echo "JMAKE_FILE_INFO.txt does not exist in build directory! Unable to execute. Please build first."
+        return 1
+    fi
+    # Check arguments/environment
+    if [ -z \$1 ]; then
+        echo "Insufficient arguments."
+        echo "    run [<jmake package>/]<class to execute> [<arg> ... ]"
+        return 2
+    fi
+
+
+    # Get arguments/data
+    CLASS_TO_RUN=\$1
+    ARGUMENTS_TO_EXEC=""
+    for ((i=2;i<\$# + 1;++i)); do
+        if [ -z "\$ARGUMENTS_TO_EXEC" ]; then
+            ARGUMENTS_TO_EXEC="\"\${!i}\""
+        else
+            ARGUMENTS_TO_EXEC="\$ARGUMENTS_TO_EXEC \"\${!i}\""
+        fi
+    done
+    source \$WORKSPACE_FILE_INFO_FILE
+    PKG_TO_FIND=\$(dirname \$CLASS_TO_RUN)
+    CLASS_TO_FIND=\$(basename \$CLASS_TO_RUN)
+
+    if [ \$PKG_TO_FIND == "." ]; then
+        PKG_TO_FIND=""
+    fi
+
+    FOUND=false
+    CLASS_COLLISION=false
+    ORIGINAL_COLLISION=false
+    FULL_CLASS_PATH=""
+    FOUND_PACKAGE_NAME=""
+    for ((i=0;i<\${#JMAKE_CLASS_NAME[@]};++i)); do
+        MATCH=false
+        if [ ! -z \$PKG_TO_FIND ]; then
+            if [ \$CLASS_TO_FIND == \${JMAKE_CLASS_NAME[i]} ] && [ \$PKG_TO_FIND == \${JMAKE_CLASS_PKG[i]} ]; then
+                MATCH=true
+            fi
+        elif [ \$CLASS_TO_FIND == \${JMAKE_CLASS_NAME[i]} ]; then
+            MATCH=true
+        fi
+        if [ \$MATCH == true ] && [ \$FOUND == true ]; then
+            CLASS_COLLISION=true
+        elif [ \$MATCH == true ]; then
+            FOUND=true
+            FULL_CLASS_PATH=\${JMAKE_CLASS_FULL_NAME[i]}
+            FOUND_PACKAGE_NAME=\${JMAKE_CLASS_PKG[i]}
+        fi
+    done
+    ORIGINAL_COLLISION=\$CLASS_COLLISION
+    # If we didn't find it or we have a collision then we will try to resolve it
+    # To the full class name (package and class)
+    if [ \$FOUND == false ] || [ \$CLASS_COLLISION == true ]; then
+        FOUND=false
+        CLASS_COLLISION=false
+        FULL_CLASS_PATH=""
+        FOUND_PACKAGE_NAME=""
+        for ((i=0;i<\${#JMAKE_CLASS_FULL_NAME[@]};++i)); do
+            MATCH=false
+            if [ ! -z \$PKG_TO_FIND ]; then
+                if [ \$CLASS_TO_FIND == \${JMAKE_CLASS_FULL_NAME[i]} ] && [ \$PKG_TO_FIND == \${JMAKE_CLASS_PKG[i]} ]; then
+                    MATCH=true
+                fi
+            elif [ \$CLASS_TO_FIND == \${JMAKE_CLASS_FULL_NAME[i]} ]; then
+                MATCH=true
+            fi
+            if [ \$MATCH == true ] && [ \$FOUND == true ]; then
+                CLASS_COLLISION=true
+            elif [ \$MATCH == true ]; then
+                FOUND=true
+                FULL_CLASS_PATH=\${JMAKE_CLASS_FULL_NAME[i]}
+                FOUND_PACKAGE_NAME=\${JMAKE_CLASS_PKG[i]}
+            fi
+        done
+    fi
+    # Check results
+    if [ \$FOUND == false ]; then
+        if [ ! \$ORIGINAL_COLLISION == true ]; then
+            echo "Collision experienced finding \${CLASS_TO_FIND}, please specify a jmake package using the format [<jmake package>/]<class to execute> to help."
+            return 4
+        else
+            echo "Unable to find \${CLASS_TO_FIND}."
+            return 3
+        fi
+    fi
+    if [ \$CLASS_COLLISION == true ]; then
+        if [ -z \$PKG_TO_FIND ]; then
+            echo "Collision experienced finding \${CLASS_TO_FIND}, please specify a jmake package using the format [<jmake package>/]<class to execute> to help."
+            return 4
+        else
+            echo "Collision experienced finding \${CLASS_TO_FIND} in \${PKG_TO_FIND}. Please specify the full path to the class (eg: <java package>.<class name>)."
+            return 5
+        fi
+    fi
+    PKG_CLASS_PATH=\${JMAKE_BUILD_DIRECTORY}/\${JMAKE_PKG_DIR_PREFIX}\${FOUND_PACKAGE_NAME}
+    eval "java -cp \$PKG_CLASS_PATH \${FULL_CLASS_PATH} \${ARGUMENTS_TO_EXEC}"
+    return \$?
+}
+SETUP_BASH_END
+}
+
+################################################################################
+### Start Execution                                                          ###
+################################################################################
+#! Where we are running
+JMAKE_RUN_DIRECTORY=$(pwd)
+#! The build info file
+JMAKE_BUILD_INFO_PATH=${JMAKE_RUN_DIRECTORY}/JMAKE_BUILD_INFO.txt
+#! File Info file
+JMAKE_FILE_INFO_PATH=${JMAKE_RUN_DIRECTORY}/JMAKE_FILE_INFO.txt
+# If there is no immediate build file.. we will make it, then below we will exit
+BUILT_FILE_INFO=false
+if [ ! -f $JMAKE_BUILD_INFO_PATH ]; then
+    # makes the build file
+    create_file_info $1
+    BUILT_FILE_INFO=true
+fi
+# The build file exists.. lets source it to get variables
+source $JMAKE_BUILD_INFO_PATH
+create_setup_bash ${JMAKE_SOURCE_DIRECTORY}/setup.bash
+if [ $BUILT_FILE_INFO == true ]; then
+    exit 0
+fi
+
+#! The name of the package... Not used! Magical!
+# TODO(joshua.spisak): delete this?
+JMAKE_PACKAGE_NAME=""
+
+## Basic builds
+#! Names of classes
+JMAKE_NAMES=()
+#! Strings detailing source files for classes in JMAKE_NAMES
+JMAKE_SOURCES=()
+
+## Jar Creation
+#! Names of classes to be put into an execuable jar (corresponds to JMAKE_NAME)
+JMAKE_JAR_PKGS=()
+#! Classes to make the jar execute
+JMAKE_JAR_CLASSES=()
+#! Names of the jars to make
+JMAKE_JARS=()
+
+## Executable Creation
+#! Names of classes to put into an executable
+JMAKE_EXEC_PKGS=()
+#! Names of classes to put into an executable
+JMAKE_EXEC_CLASSES=()
+#! Names of those execuables
+JMAKE_EXECS=()
+
+# Check for that make file
+if [ ! -f $JMAKE_MAKE_FILE ]; then
+    echo "No Make File Exists."
+    exit 1
+fi
+
+##
+# @brief sets the package
+# @TODO(joshua.spisak): delete this?
+##
+function set_package {
+    if [ ! -z $1 ]; then
+        JMAKE_PACKAGE_NAME=$1
+    else
+        echo "${COLOR_ERROR}ERROR: No package name provided to set_package.${COLOR_NC}"
+        exit 1
+    fi
+}
+
+##
+# @brief adds java source files
+# @param JMAKE_NAME ($1) name of the main class in these source files
+# @param JMAKE_NEW_SRC_FILES ($2) space delimited list of source files
+# @details adds JMAKE_NAME to JMAKE_NAMES, JMAKE_NEW_SRC_FILES to JMAKE_SOURCES
+#  make note of how JMAKE_SOURCES is appended to to keep the list intact
+##
+function add_src {
+    if [ -z "$1" ] || [ -z "$2" ]; then
+        echo "${COLOR_ERROR}ERROR: Please provide two arguments to add_src <pkg_name> <src_file> [<src_file_2> ... <src_file_n>]${COLOR_NC}"
+        exit 1
+    fi
+    JMAKE_NAME=$1
+    # THis is to safely add all source files to a single index in JMAKE_SOURCES
+    JMAKE_NEW_SRC_FILES=""
+    for ((i=2;i<$# + 1;++i)); do
+        if [ -z "$JMAKE_NEW_SRC_FILES" ]; then
+            JMAKE_NEW_SRC_FILES="${JMAKE_SOURCE_DIRECTORY}/${!i}"
+        else
+            JMAKE_NEW_SRC_FILES="$JMAKE_NEW_SRC_FILES ${JMAKE_SOURCE_DIRECTORY}/${!i}"
+        fi
+    done
+
+    # Check to see if package is already added
+    for ((j=0;j<${#JMAKE_NAMES[@]};++j)); do
+        if [ ${JMAKE_NAMES[j]} == $JMAKE_NAME ]; then
+            echo "${COLOR_ERROR}ERROR: Package [${JMAKE_JAR_PKG}] is already added.${COLOR_NC}"
+            exit 1
+        fi
+    done
+
+    JMAKE_NAMES+=($JMAKE_NAME)
+    JMAKE_SOURCES+=("$JMAKE_NEW_SRC_FILES")
+}
+
+##
+# @brief creates a jar
+# @param JMAKE_JAR_PKG ($1) name of package to put into jar (equiv to something in JMAKE_NAMES)
+# @param JMAKE_JAR ($2) name of jar to create
+# @param JMAKE_JAR_CLASS ($3) name of class to execute in jar (can be empty, and class argument needs passed to java)
+##
+function add_jar {
+    if [ -z "$1" ] || [ -z "$2" ]; then
+        echo "${COLOR_ERROR}ERROR: Arguments must be provided to add_jar <pkg_name> <jar_name> [<class_to_execute>]${COLOR_NC}"
+        exit 1
+    fi
+    JMAKE_JAR_PKG=$1
+    JMAKE_JAR=$2
+    JMAKE_JAR_CLASS=$3
+    if [ -z $JMAKE_JAR_CLASS ]; then
+        JMAKE_JAR_CLASS=" "
+    fi
+    # Check for repeats if it is already added
+    for ((j=0;j<${#JMAKE_JAR_CLASSES[@]};++j)); do
+        # Need both the class and package to match for it to be a duplicate
+        if [ "${JMAKE_JAR_CLASSES[j]}" == "$JMAKE_JAR_CLASS" ] && [ "${JMAKE_JAR_PKGS[j]}" == "$JMAKE_JAR_PKG" ]; then
+            echo "${COLOR_ERROR}ERROR: Class [${JMAKE_JAR_CLASS}] from package [${JMAKE_JAR_PKG}] is already being put into a jar: [${JMAKE_JARS[j]}].${COLOR_NC}"
+            exit 1
+        fi
+    done
+    # Make sure there are no duplicate jar names
+    for ((j=0;j<${#JMAKE_JARS[@]};++j)); do
+        if [ ${JMAKE_JARS[j]} == $JMAKE_JAR ]; then
+            echo "${COLOR_ERROR}ERROR: Jar named: [${JMAKE_JAR}] is already being made from class: [${JMAKE_JAR_CLASSES[j]}] in package [${JMAKE_JAR_PKGS[j]}].${COLOR_NC}"
+            exit 1
+        fi
+    done
+    JMAKE_JAR_PKGS+=($JMAKE_JAR_PKG)
+    JMAKE_JAR_CLASSES+=("$JMAKE_JAR_CLASS")
+    JMAKE_JARS+=($JMAKE_JAR)
+}
+
+##
+# @brief creates an executable
+# @param JMAKE_EXEC_PKG ($1) name of package to put into executable (equiv to something in JMAKE_JAR_PKG)
+# @param JMAKE_EXEC ($2) name of executable to create
+# @param JMAKE_EXEC_CLASS ($3) class to execute (required)
+##
+function add_executable {
+    if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
+        echo "${COLOR_ERROR}ERROR: arguments must be provided to add_jar <pkg_name> <executable_name> <class_to_execute>${COLOR_NC}"
+        exit 1
+    fi
+    JMAKE_EXEC_PKG=($1)
+    JMAKE_EXEC=($2)
+    JMAKE_EXEC_CLASS=($3)
+    # Check for repeats if it is already added
+    for ((j=0;j<${#JMAKE_EXEC_CLASSES[@]};++j)); do
+        # Need both the class and package to match for it to be a duplicate
+        if [ ${JMAKE_EXEC_CLASSES[j]} == $JMAKE_EXEC_CLASS ] && [ ${JMAKE_EXEC_PKGS[j]} == $JMAKE_JAR_PKG ]; then
+            echo "${COLOR_ERROR}ERROR: Class [${JMAKE_EXEC_CLASS}] from package [${JMAKE_JAR_PKG}] is already being put into an executable: [${JMAKE_EXECS[j]}].${COLOR_NC}"
+            exit 1
+        fi
+    done
+    # Make sure there are no duplicate jar names
+    for ((j=0;j<${#JMAKE_EXECS[@]};++j)); do
+        if [ ${JMAKE_EXECS[j]} == $JMAKE_EXEC ]; then
+            echo "${COLOR_ERROR}ERROR: Jar named: [${JMAKE_EXEC}] is already being make from class: [${JMAKE_EXEC_CLASSES[j]}] in package [${JMAKE_EXEC_PKGS[j]}].${COLOR_NC}"
+            exit 1
+        fi
+    done
+    JMAKE_EXEC_PKGS+=($JMAKE_EXEC_PKG)
+    JMAKE_EXECS+=($JMAKE_EXEC)
+    JMAKE_EXEC_CLASSES+=($JMAKE_EXEC_CLASS)
+}
+
+# Get source definitions
+# And fill arrays above
+source $JMAKE_MAKE_FILE
+
+###### Run a few more checks before making everything ##########################
+# Check that each jar has packages it needs
+for ((j=0;j<${#JMAKE_JAR_PKGS[@]};++j)); do
+    FOUND=false
+    for ((k=0;k<${#JMAKE_NAMES[@]};++k)); do
+        if [ ${JMAKE_NAMES[k]} == ${JMAKE_JAR_PKGS[j]} ]; then
+            FOUND=true
+        fi
+    done
+    if [ $FOUND == false ]; then
+        echo "Jar named: [${JMAKE_EXEC}] requested package [${JMAKE_JAR_PKGS[j]}] which does not exist."
+        exit 1
+    fi
+done
+
+# Check each executable has a jar with the pkg/classes needed
+# NOTE(joshua.spisak): we use l here because it can call add_jar which uses j
+#   I learned this the hard way
+for ((l=0;l<${#JMAKE_EXEC_PKGS[@]};++l)); do
+    # First make sure the package exists
+    FOUND_PKG=false
+    for ((k=0;k<${#JMAKE_NAMES[@]};++k)); do
+        if [ ${JMAKE_NAMES[k]} == ${JMAKE_EXEC_PKGS[l]} ]; then
+            FOUND_PKG=true
+        fi
+    done
+    if [ $FOUND_PKG == false ]; then
+        echo "Executable named: [${JMAKE_EXECS[l]}] requested package [${JMAKE_EXEC_PKGS[l]}] which does not exist."
+        exit 1
+    fi
+    # Then see if there is already a jar being made for that package
+    FOUND_JAR=false
+    for ((k=0;k<${#JMAKE_JAR_PKGS[@]};++k)); do
+        if [ "${JMAKE_JAR_PKGS[k]}" == "${JMAKE_EXEC_PKGS[l]}" ] && [ "${JMAKE_JAR_CLASSES[k]}" == "${JMAKE_EXEC_CLASSES[l]}" ]; then
+            FOUND_JAR=true
+        fi
+    done
+    if [ $FOUND_JAR == false ]; then
+        # We can just add it to be made
+        NEW_JAR=${JMAKE_JAR_PREF}${JMAKE_EXEC_PKGS[l]}_${JMAKE_EXEC_CLASSES[l]}.jar
+        NEW_JAR_DIR=$(dirname $NEW_JAR)
+        if [ ! -e $NEW_JAR_DIR ]; then
+            mkdir -p $NEW_JAR_DIR
+        fi
+        echo "${COLOR_INFO}NOTE: No jar is made for package ${JMAKE_EXEC_PKGS[l]}, adding ${NEW_JAR} to list for class ${JMAKE_EXEC_CLASSES[l]}.${COLOR_NC}"
+        add_jar ${JMAKE_EXEC_PKGS[l]} ${NEW_JAR} ${JMAKE_EXEC_CLASSES[l]}
+    fi
+done
+
+###### Let's make some stuff!!! ################################################
+# Build classes
+JMAKE_FILE_PKG_LIST=""
+JMAKE_FILES_PKG_SRC_LIST=""
+for ((i=0;i<${#JMAKE_NAMES[@]};++i)); do
+    JMAKE_CURRENT_BUILD_DIR=${JMAKE_BUILD_DIRECTORY}/${JMAKE_PKG_DIR_PREFIX}${JMAKE_NAMES[i]}
+    JMAKE_CURRENT_SRC_FILES=${JMAKE_SOURCES[i]}
+
+    echo "${COLOR_START}[${JMAKE_NAMES[i]}] ** Beginning build **${COLOR_NC}"
+    javac -d $JMAKE_CURRENT_BUILD_DIR $JMAKE_CURRENT_SRC_FILES
+    EXIT_CODE=$?
+    if [ ! $EXIT_CODE -eq 0 ]; then
+        echo "${COLOR_ERROR}[${JMAKE_NAMES[i]}] ERROR: Build command failed [exit code: $EXIT_CODE]!${COLOR_NC}"
+        exit $EXIT_CODE
+    fi
+    if [ -z $JMAKE_FILE_PKG_LIST ]; then
+        JMAKE_FILE_PKG_LIST="${JMAKE_NAMES[i]}"
+    else
+        JMAKE_FILE_PKG_LIST="${JMAKE_FILE_PKG_LIST}|${JMAKE_NAMES[i]}"
+    fi
+    if [ -z "$JMAKE_FILES_PKG_SRC_LIST" ]; then
+        JMAKE_FILES_PKG_SRC_LIST="${JMAKE_SOURCES[i]}"
+    else
+        JMAKE_FILES_PKG_SRC_LIST="${JMAKE_FILES_PKG_SRC_LIST}|${JMAKE_SOURCES[i]}"
+    fi
+    echo "${COLOR_FINISH}[${JMAKE_NAMES[i]}] ** Build completed! **${COLOR_NC}"
+done
+make_file_info $JMAKE_FILE_INFO_PATH $JMAKE_FILE_PKG_LIST "$JMAKE_FILES_PKG_SRC_LIST"
+source $JMAKE_FILE_INFO_PATH
+
+# Create jars
+for ((i=0;i<${#JMAKE_JARS[@]};++i)); do
+    JMAKE_CURRENT_JAR_NAME=${JMAKE_JARS[i]}
+    JMAKE_CURRENT_JAR_PKG=${JMAKE_JAR_PKGS[i]}
+    JMAKE_CURRENT_JAR_CLASS=${JMAKE_JAR_CLASSES[i]}
+    JMAKE_CURRENT_BUILD_DIR=${JMAKE_BUILD_DIRECTORY}/${JMAKE_PKG_DIR_PREFIX}$JMAKE_CURRENT_JAR_PKG
+    JMAKE_CURRENT_JAR_PATH=${JMAKE_BUILD_DIRECTORY}/${JMAKE_CURRENT_JAR_NAME}
+    JMAKE_CURRENT_MANIFEST_DIR=$JMAKE_CURRENT_BUILD_DIR/META-INF
+    JMAKE_CURRENT_MANIFEST_PATH=$JMAKE_CURRENT_MANIFEST_DIR/MANIFEST.MF
+
+    if [ ! -e $JMAKE_CURRENT_BUILD_DIR ]; then
+        echo "${COLOR_ERROR}[$JMAKE_CURRENT_JAR_PKG] ERROR: Package is not built. Unable to make jar: $JMAKE_CURRENT_JAR_NAME.${COLOR_NC}"
+        exit 1
+    fi
+    # Remove any old jars
+    if [ -f $JMAKE_CURRENT_JAR_PATH ]; then
+        rm $JMAKE_CURRENT_JAR_PATH
+    fi
+
+    # Remove any old manifest file
+    if [ -e $JMAKE_CURRENT_MANIFEST_DIR ]; then
+        rm -rf $JMAKE_CURRENT_MANIFEST_DIR
+    fi
+
+    echo "${COLOR_START}[$JMAKE_CURRENT_JAR_PKG] ** Getting ready to make jar $JMAKE_CURRENT_JAR_NAME **${COLOR_NC}"
+    cd $JMAKE_CURRENT_BUILD_DIR
+    if [ -z "$JMAKE_CURRENT_JAR_CLASS" ] || [ ! "$JMAKE_CURRENT_JAR_CLASS" == " " ]; then
+        # We will make sure the class exists
+        EXISTS=false
+        for ((j=0;j<${#JMAKE_CLASS_FULL_NAME[@]};++j)); do
+            if [ "${JMAKE_CLASS_FULL_NAME[j]}" == "$JMAKE_CURRENT_JAR_CLASS" ] && [ "${JMAKE_CLASS_PKG[j]}" == "$JMAKE_CURRENT_JAR_PKG" ]; then
+                EXISTS=true
+            fi
+        done
+        if [ ! $EXISTS == true ]; then
+            echo "${COLOR_ERROR}ERROR: Class $JMAKE_CURRENT_JAR_CLASS does not exist in package $JMAKE_CURRENT_JAR_PKG!${COLOR_NC}"
+            exit 1
+        fi
+        create_manifest $JMAKE_CURRENT_MANIFEST_PATH $JMAKE_CURRENT_JAR_CLASS
+        jar Mcmvf $JMAKE_CURRENT_MANIFEST_PATH $JMAKE_CURRENT_JAR_PATH .
+    else
+        jar cvf $JMAKE_CURRENT_JAR_PATH .
+    fi
+    if [ -e $JMAKE_CURRENT_MANIFEST_DIR ]; then
+        rm -rf $JMAKE_CURRENT_MANIFEST_DIR
+    fi
+    EXIT_CODE=$?
+    if [ ! $EXIT_CODE -eq 0 ]; then
+        echo "${COLOR_ERROR}ERROR: Jar command failed [exit code: $EXIT_CODE]!${COLOR_NC}"
+        exit $EXIT_CODE
+    fi
+    echo "${COLOR_FINISH}[$JMAKE_CURRENT_JAR_PKG] ** $JMAKE_CURRENT_JAR_NAME creation complete **${COLOR_NC}"
+done
+
+# Create executables
+for ((i=0;i<${#JMAKE_EXECS[@]};++i)); do
+    #! Current directory where java class files live built
+    JMAKE_CURRENT_BUILD_DIR=${JMAKE_BUILD_DIRECTORY}/${JMAKE_PKG_DIR_PREFIX}$JMAKE_CURRENT_EXEC_PKG
+    #! Current executable name
+    JMAKE_CURRENT_EXEC_NAME=${JMAKE_EXECS[i]}
+    #! Pkg of the current executable
+    JMAKE_CURRENT_EXEC_PKG=${JMAKE_EXEC_PKGS[i]}
+    #! Class of the current executable (to be executed)
+    JMAKE_CURRENT_EXEC_CLASS=${JMAKE_EXEC_CLASSES[i]}
+    #! Path to where the executable will be made
+    JMAKE_CURRENT_EXEC_PATH=${JMAKE_BUILD_DIRECTORY}/${JMAKE_CURRENT_EXEC_NAME}
+    #! Path to where the execute stub will be placed
+    JMAKE_CURRENT_EXEC_STUB=$JMAKE_BUILD_DIRECTORY/exec_stub.sh
+    #! Python file to make file executable?
+    # TODO(joshua.spisak): delete this? See executable_marker function...
+    JMAKE_CURRENT_MAKE_EXEC_PY=$JMAKE_BUILD_DIRECTORY/turn_executable.py
+
+    # We will skip this part since it doesn't work.... see function notes
+    # if [ ! -f $JMAKE_CURRENT_MAKE_EXEC_PY ]; then
+    #     executable_marker $JMAKE_CURRENT_MAKE_EXEC_PY
+    # fi
+
+    # Remove old executable
+    if [ -f $JMAKE_CURRENT_EXEC_PATH ]; then
+        rm $JMAKE_CURRENT_EXEC_PATH
+    fi
+
+    #! Path to jar being used to make this
+    JMAKE_CURRENT_JAR_PATH=""
+    for ((j=0;j<${#JMAKE_JAR_CLASSES[@]};++j)); do
+        if [ -z $JMAKE_CURRENT_JAR_PATH ]; then
+            if [ "${JMAKE_JAR_PKGS[j]}" == "$JMAKE_CURRENT_EXEC_PKG" ] && [ "${JMAKE_JAR_CLASSES[j]}" == "$JMAKE_CURRENT_EXEC_CLASS" ]; then
+                JMAKE_CURRENT_JAR_PATH=$JMAKE_BUILD_DIRECTORY/${JMAKE_JARS[j]}
+            fi
+        fi
+    done
+
+    create_exec_stub $JMAKE_CURRENT_EXEC_STUB
+
+    # NOTE(joshua.spisak): I no longer do a check of JMAKE_CURRENT_JAR_PATH
+    #   because before anything is made this is checked
+
+    echo "${COLOR_START}[$JMAKE_CURRENT_EXEC_PKG] ** Getting ready to make executable $JMAKE_CURRENT_EXEC_NAME **${COLOR_NC}"
+    if [ ! -f $JMAKE_CURRENT_JAR_PATH ]; then
+        echo "${COLOR_ERROR}[$JMAKE_CURRENT_EXEC_PKG] ERROR: $JMAKE_CURRENT_JAR_PATH does not exist.${COLOR_NC}"
+    fi
+
+    cat $JMAKE_CURRENT_EXEC_STUB $JMAKE_CURRENT_JAR_PATH > $JMAKE_CURRENT_EXEC_PATH
+    EXIT_CODE=$?
+    if [ ! $EXIT_CODE -eq 0 ]; then
+        echo "${COLOR_ERROR}[$JMAKE_CURRENT_EXEC_PKG] ERROR: Executable creation (cat command) failed [exit code: $EXIT_CODE]!${COLOR_NC}"
+        exit $EXIT_CODE
+    fi
+    # python $JMAKE_CURRENT_MAKE_EXEC_PY $JMAKE_CURRENT_EXEC_PATH
+    sudo chmod +x $JMAKE_CURRENT_EXEC_PATH
+    echo "${COLOR_FINISH}[$JMAKE_CURRENT_EXEC_PKG] ** $JMAKE_CURRENT_EXEC_NAME creation complete. **${COLOR_NC}"
+
+    # Only need to do this once and can use it for all executables
+    if [ -f $JMAKE_CURRENT_EXEC_STUB ]; then
+        rm $JMAKE_CURRENT_EXEC_STUB
+    fi
+    #TODO(joshua.spisak): delete variables after usage? (enforce scoping...)
+done
+
+echo "${COLOR_COMPLETE}BUILD SUCCEEDED!!!${COLOR_NC}"

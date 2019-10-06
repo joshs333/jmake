@@ -1,0 +1,21 @@
+SRC_FILES=(
+    src/TestClass.java
+    src/SubClass.java
+    src/sub_package/SubClass.java
+    src/sub_package/PrintArgs.java
+)
+
+# Add some source files
+add_src FullPackage ${SRC_FILES[@]}
+add_src SubClassPackage src/sub_package/SubClass.java
+
+# We will create a jar from the source contained in SubClassPackage
+add_jar SubClassPackage sub_class_jar.jar sub_package.SubClass
+# We will create a jar from FullPackage source without a class
+add_jar FullPackage full_package.jar
+# We will use the upper subclass
+add_jar FullPackage full_package_subclass.jar SubClass
+
+# We will make executables with the two classes
+add_executable FullPackage print_args sub_package.PrintArgs
+add_executable FullPackage run_sub_class SubClass

@@ -1,0 +1,25 @@
+#!/bin/bash
+JMAKE_VERSION=0.0.1
+JMAKE_BUILD_DIRECTORY=/Users/joshua.spisak/Coding/personal/jmake/test/build
+JMAKE_PKG_DIR_PREFIX=JBUILD/JPKG_
+JMAKE_CLASS_NAME=(
+    TestClass
+    SubClass
+    SubClass
+    PrintArgs
+    SubClass
+)
+JMAKE_CLASS_FULL_NAME=(
+    TestClass
+    SubClass
+    sub_package.SubClass
+    sub_package.PrintArgs
+    sub_package.SubClass
+)
+JMAKE_CLASS_PKG=(
+    FullPackage
+    FullPackage
+    FullPackage
+    FullPackage
+    SubClassPackage
+)
