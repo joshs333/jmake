@@ -576,6 +576,9 @@ for ((i=0;i<${#JMAKE_NAMES[@]};++i)); do
     JMAKE_CURRENT_SRC_FILES=${JMAKE_SOURCES[i]}
 
     echo "${COLOR_START}[${JMAKE_NAMES[i]}] ** Beginning build **${COLOR_NC}"
+    if [ ! -e $JMAKE_CURRENT_BUILD_DIR ]; then
+        mkdir -p $JMAKE_CURRENT_BUILD_DIR
+    fi
     javac -d $JMAKE_CURRENT_BUILD_DIR $JMAKE_CURRENT_SRC_FILES
     EXIT_CODE=$?
     if [ ! $EXIT_CODE -eq 0 ]; then
