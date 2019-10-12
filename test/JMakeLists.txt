@@ -8,13 +8,30 @@ SRC_FILES=(
 # Add some source files
 add_src FullPackage ${SRC_FILES[@]}
 add_src SubClassPackage src/sub_package/SubClass.java
+add_post_build_command FullPackage create_zip_package
+
+function create_zip_package() {
+    my_zip_file=${JMAKE_BUILD_DIRECTORY}/${JMAKE_CURRENT_BUILD_PKG}.zip
+    pre_make_dir=${JMAKE_CURRENT_BUILD_DIR}/ZIP_CREATION
+
+    if [ -e $pre_make_dir ]; then
+        rm -rf $pre_make_dir
+    fi
+    if [ -f $my_zip_file ]; then
+        rm $my_zip_file
+    fi
+    mkdir -p $pre_make_dir
+    cp -r ${JMAKE_SOURCE_DIRECTORY}/src/* $pre_make_dir
+    cd $pre_make_dir
+    zip $my_zip_file -r *
+}
 
 # We will create a jar from the source contained in SubClassPackage
-add_jar SubClassPackage sub_class_jar.jar sub_package.SubClass
+# add_jar SubClassPackage sub_class_jar.jar sub_package.SubClass
 # We will create a jar from FullPackage source without a class
-add_jar FullPackage full_package.jar
+# add_jar FullPackage full_package.jar
 # We will use the upper subclass
-add_jar FullPackage full_package_subclass.jar SubClass
+# add_jar FullPackage full_package_subclass.jar SubClass
 
 # We will make executables with the two classes
 add_executable FullPackage print_args sub_package.PrintArgs

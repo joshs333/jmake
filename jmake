@@ -373,6 +373,12 @@ JMAKE_NAMES=()
 #! Strings detailing source files for classes in JMAKE_NAMES
 JMAKE_SOURCES=()
 
+## Custom Function Execution (executed after build)
+#! Name of pkg to execute function for
+JMAKE_POST_BUILD_FUNC_PKGS=()
+#! Name of function to execute
+JMAKE_POSE_BUILD_FUNC_NAME=()
+
 ## Jar Creation
 #! Names of classes to be put into an execuable jar (corresponds to JMAKE_NAME)
 JMAKE_JAR_PKGS=()
@@ -441,6 +447,31 @@ function add_src {
 
     JMAKE_NAMES+=($JMAKE_NAME)
     JMAKE_SOURCES+=("$JMAKE_NEW_SRC_FILES")
+}
+
+##
+# @brief Adds a command to be executed after a build
+# @param JMAKE_NAME ($1) the name of the package for it to be executed after
+# @param JMAKE_FUNC_NAME ($2) the name of the function to execute
+##
+function add_post_build_command() {
+    if [ -z "$1" ] || [ -z "$2" ]; then
+        echo "${COLOR_ERROR}ERROR: Please provide two arguments to add_src <pkg_name> <function_name>${COLOR_NC}"
+        exit 1
+    fi
+    JMAKE_NAME=$1
+    JMAKE_FUNC_NAME=$2
+
+    # Check to see if a function is already added to a package
+    for ((j=0;j<${#JMAKE_POST_BUILD_FUNC_NAMES[@]};++j)); do
+        if [ ${JMAKE_POST_BUILD_FUNC_NAMES[j]} == $JMAKE_FUNC_NAME ] && [ ${JMAKE_POST_BUILD_FUNC_PKGS[j]} == $JMAKE_NAME ]; then
+            echo "${COLOR_ERROR}ERROR: Function named [${JMAKE_FUNC_NAME}] is already added to package [$JMAKE_NAME].${COLOR_NC}"
+            exit 1
+        fi
+    done
+
+    JMAKE_POST_BUILD_FUNC_PKGS+=($JMAKE_NAME)
+    JMAKE_POST_BUILD_FUNC_NAMES+=("$JMAKE_FUNC_NAME")
 }
 
 ##
@@ -519,6 +550,27 @@ function add_executable {
 source $JMAKE_MAKE_FILE
 
 ###### Run a few more checks before making everything ##########################
+# Check that each function's package actually exists
+for ((j=0;j<${#JMAKE_POST_BUILD_FUNC_PKGS[@]};++j)); do
+    FOUND=false
+    for ((k=0;k<${#JMAKE_NAMES[@]};++k)); do
+        if [ ${JMAKE_NAMES[k]} == ${JMAKE_POST_BUILD_FUNC_PKGS[j]} ]; then
+            FOUND=true
+        fi
+    done
+    if [ $FOUND == false ]; then
+        echo "${COLOR_ERROR}Post-build command: [${JMAKE_POST_BUILD_FUNC_NAMES[j]}] requested package [${JMAKE_POST_BUILD_FUNC_PKGS[j]}] which does not exist.${COLOR_NC}"
+        exit 1
+    fi
+    # Gets the first word in command (the actual command) and sees if its a command
+    type $(echo $JMAKE_POST_BUILD_FUNC_NAMES | cut -d ' ' -f 1) &> /dev/null
+    INVALID_COMMAND=$?
+    if [ $INVALID_COMMAND -eq 1 ]; then
+        echo "${COLOR_ERROR}Post-build command: [${JMAKE_POST_BUILD_FUNC_NAMES[j]}] for package: [${JMAKE_POST_BUILD_FUNC_PKGS[j]}] cannot be found.${COLOR_NC}"
+        exit 1
+    fi
+done
+
 # Check that each jar has packages it needs
 for ((j=0;j<${#JMAKE_JAR_PKGS[@]};++j)); do
     FOUND=false
@@ -572,7 +624,8 @@ done
 JMAKE_FILE_PKG_LIST=""
 JMAKE_FILES_PKG_SRC_LIST=""
 for ((i=0;i<${#JMAKE_NAMES[@]};++i)); do
-    JMAKE_CURRENT_BUILD_DIR=${JMAKE_BUILD_DIRECTORY}/${JMAKE_PKG_DIR_PREFIX}${JMAKE_NAMES[i]}
+    JMAKE_CURRENT_BUILD_PKG=${JMAKE_NAMES[i]}
+    JMAKE_CURRENT_BUILD_DIR=${JMAKE_BUILD_DIRECTORY}/${JMAKE_PKG_DIR_PREFIX}${JMAKE_CURRENT_BUILD_PKG}
     JMAKE_CURRENT_SRC_FILES=${JMAKE_SOURCES[i]}
 
     echo "${COLOR_START}[${JMAKE_NAMES[i]}] ** Beginning build **${COLOR_NC}"
@@ -585,6 +638,7 @@ for ((i=0;i<${#JMAKE_NAMES[@]};++i)); do
         echo "${COLOR_ERROR}[${JMAKE_NAMES[i]}] ERROR: Build command failed [exit code: $EXIT_CODE]!${COLOR_NC}"
         exit $EXIT_CODE
     fi
+    # Note explicity linked to building.. but is convenient for making the make file info thing
     if [ -z $JMAKE_FILE_PKG_LIST ]; then
         JMAKE_FILE_PKG_LIST="${JMAKE_NAMES[i]}"
     else
@@ -595,6 +649,14 @@ for ((i=0;i<${#JMAKE_NAMES[@]};++i)); do
     else
         JMAKE_FILES_PKG_SRC_LIST="${JMAKE_FILES_PKG_SRC_LIST}|${JMAKE_SOURCES[i]}"
     fi
+    # Execute all the functions for the package
+    for ((j=0;j<${#JMAKE_POST_BUILD_FUNC_PKGS[@]};++j)); do
+        if [ ${JMAKE_NAMES[i]} == ${JMAKE_POST_BUILD_FUNC_PKGS[j]} ]; then
+            echo "${COLOR_INFO}[${JMAKE_NAMES[i]}] Running command [${JMAKE_POST_BUILD_FUNC_NAMES[j]}] ${COLOR_NC}"
+            ${JMAKE_POST_BUILD_FUNC_NAMES[j]}
+        fi
+        cd ${JMAKE_RUN_DIRECTORY}
+    done
     echo "${COLOR_FINISH}[${JMAKE_NAMES[i]}] ** Build completed! **${COLOR_NC}"
 done
 make_file_info $JMAKE_FILE_INFO_PATH $JMAKE_FILE_PKG_LIST "$JMAKE_FILES_PKG_SRC_LIST"
