@@ -92,9 +92,13 @@ for i in range(len(pkgs)):
             if not re.search('\n\s*public +static +void +main', data):
                 continue
             class_list = [re.search('(\w*)', i).group(1) for i in re.split('class ', data)]
+            print(class_list)
             for class_name in class_list:
                 # The above regex always generates this for some reason
-                if class_name == '':
+                # We also skip public/static keywords which the regex might generate if the
+                # Class definition is on the first line
+                # TODO(joshua.spisak): do this better?
+                if class_name == '' or class_name == 'public' or class_name == "static":
                     continue
                 # Takes care of if the class is generic
                 class_name = class_name.split("<")[0]
