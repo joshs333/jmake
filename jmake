@@ -87,11 +87,21 @@ for i in range(len(pkgs)):
                 package = re.search('(\w*)', pkg_split[1]).group(1)
             else:
                 package = None
-            class_list = [re.search('(\w*)', i).group(1) for i in re.split('class ', data) if re.search('\n\s*public static void main', i)]
+
+            # Makes sure there is a main function in the class
+            if not re.search('\n\s*public +static +void +main', data):
+                continue
+            class_list = [re.search('(\w*)', i).group(1) for i in re.split('class ', data)]
             for class_name in class_list:
+                # The above regex always generates this for some reason
+                if class_name == '':
+                    continue
+                # Takes care of if the class is generic
+                class_name = class_name.split("<")[0]
                 final_pkg_list.append(pkg)
                 final_class_list.append(class_name)
                 final_class_full_list.append(class_name if package == None else "%s.%s"%(package, class_name))
+                break
         except Exception as err:
             print("Error: " + str(err))
 with open(output_file, "a+") as out:
@@ -109,6 +119,7 @@ with open(output_file, "a+") as out:
     out.write(")\n")
 exit(0)
 EOM
+
 python -c "$PYTHON_CLASS_PARSER"
 if [ ! $? -eq 0 ]; then
     echo "ERROR: Creation of ${OUT_FILE} failed!"
