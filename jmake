@@ -92,7 +92,6 @@ for i in range(len(pkgs)):
             if not re.search('\n\s*public +static +void +main', data):
                 continue
             class_list = [re.search('(\w*)', i).group(1) for i in re.split('class ', data)]
-            print(class_list)
             for class_name in class_list:
                 # The above regex always generates this for some reason
                 # We also skip public/static keywords which the regex might generate if the
