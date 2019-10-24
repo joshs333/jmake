@@ -1,3 +1,5 @@
+create_setup_bash setup.bash
+
 SRC_FILES=(
     src/TestClass.java
     src/SubClass.java

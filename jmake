@@ -274,6 +274,7 @@ function create_exec_stub {
 ##
 function create_setup_bash {
     SETUP_BASH_FILE=$1
+    cd ${JMAKE_SOURCE_DIRECTORY}
 cat > $SETUP_BASH_FILE << SETUP_BASH_END
 #!/bin/bash
 WORKSPACE_DIRECTORY=${JMAKE_SOURCE_DIRECTORY}
@@ -479,14 +480,10 @@ BUILT_FILE_INFO=false
 if [ ! -f $JMAKE_BUILD_INFO_PATH ]; then
     # makes the build file
     create_file_info $1
-    BUILT_FILE_INFO=true
+    exit 0
 fi
 # The build file exists.. lets source it to get variables
 source $JMAKE_BUILD_INFO_PATH
-create_setup_bash ${JMAKE_SOURCE_DIRECTORY}/setup.bash
-if [ $BUILT_FILE_INFO == true ]; then
-    exit 0
-fi
 
 #! The name of the package... Not used! Magical!
 # TODO(joshua.spisak): delete this?
