@@ -40,6 +40,11 @@ add_executable <JMAKE Package Name> <executable name> <class to execute>
 ```
 This will make a linux/macos executable file that executes <class to execute>. These also go into the build/ directory. This relies on executable jars of that class, if there are none made in the JMakeLists.txt then it will make one.
 
+```
+create_setup_bash <bash file name>
+```
+This will generate a setup.bash file which can be sourced to give some convenience build and run commands. See below for the run and build command.
+
 # See it in action
 I put an example in test/ that I used to debug and test. To see it in action go to test/ and run the following.
 ```
@@ -49,10 +54,16 @@ cd build/
 cd ..
 source setup.bash
 ```
-Setup.bash is a beautiful thing I like to add to my projects that let me run build/run commands no matter where I am in the file structure. It will give you two main commands `build` and `run`. `build` just goes to the build/ directory and execute jmake.
+How to use the setup.bash commands.
 ```
 run <Class to run> [<args> ...]
 ```
+This runs a class (that has a main function in it) with the provided arguments.
+```
+build
+```
+This just runs the make command from any directory for convenience.
+
 Setup.bash also adds the build directory to path so any executables that are generated can be run anywhere in terminal. 
 
 # "Installation"
@@ -70,9 +81,9 @@ Something I don't think I've ever seen in Java build tools I've used is packagin
 
 # TODO:
 - Add more documentation. On the bright side it's just <1000 lines of bash scripting. It's not that difficult to see what's going on and I tend to comment a fair amount.
-- Add support for pre-build/post-build commands in the form of functions
+- Add support for pre-build commands in the form of functions
 - add more convenience functions to setup.bash (I'm thinking of file structure navigation to different directories but IDK)
 We'll see when I get time to do more for this. It's fitting my needs right now so the rest is YAGNI as far as I'm concerned for the moment.
 
 Questions?: joshs333@live.com
-Want to use this?: I doubt people will want to... haha but if you do go for it.
+Want to use this?: I doubt people will want to... haha but if you do go for it, fully open source.
